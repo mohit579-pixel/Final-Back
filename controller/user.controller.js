@@ -12,9 +12,9 @@ const cookieOptions = {
 
 
   export const registerUser = async (req, res, next) => {
-    const { fullName, email, password } = req.body;
+    const { fullName, email, password,role } = req.body;
     let user; // Declare user variable outside the try block
-
+    console.log(req.body);
     if (!fullName || !email || !password) {
         return next(new AppError('All Fields are Required', 400));
     }
@@ -48,7 +48,8 @@ const cookieOptions = {
                         avatar: {
                             public_id: result.public_id,
                             secure_url: result.secure_url
-                        }
+                        },
+                        role:role
                     });
 
                     // Remove file from server
@@ -67,7 +68,9 @@ const cookieOptions = {
                 avatar: {
                     public_id: email,
                     secure_url: null
-                }
+                },
+                role:role
+
             });
         }
 
