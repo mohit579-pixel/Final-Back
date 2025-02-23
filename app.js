@@ -13,7 +13,7 @@ app.set("trust proxy", 1);
 
 // CORS middleware
 app.use(cors({
-  origin: 'http://localhost:5173',
+  origin: 'https://final-pro-pink.vercel.app',
   credentials: true,
   httpOnly: false,
   optionSuccessStatus: 200,
