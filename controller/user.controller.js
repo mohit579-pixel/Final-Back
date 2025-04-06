@@ -1,5 +1,6 @@
 import AppError from "../utils/error.utils.js";
 import User from "../models/user.models.js";
+import Doctor from "../models/doctor.model.js";
 import cloudinary from "cloudinary";
 import fs from 'fs/promises';
 
@@ -12,82 +13,98 @@ const cookieOptions = {
 
 
   export const registerUser = async (req, res, next) => {
-    const { fullName, email, password,role } = req.body;
-    let user; // Declare user variable outside the try block
-    console.log(req.body);
+    const { fullName, email, password, role, phone, speciality, experience, qualifications, bio, workingHours, slotDuration } = req.body;
+    let user;
+
     if (!fullName || !email || !password) {
         return next(new AppError('All Fields are Required', 400));
     }
 
-    const userExists = await User.findOne({
-        email
-    });
+    const userExists = await User.findOne({ email });
 
     if (userExists) {
         return next(new AppError('Email Already Exists', 400));
     }
 
     try {
-        // File Upload - Move this block to the beginning
+        let avatarData = {
+            public_id: email,
+            secure_url: null
+        };
+
+        // Handle file upload if present
         if (req.file) {
-            console.log(req.file);
             try {
                 const result = await cloudinary.v2.uploader.upload(req.file.path, {
-                    folder: 'lms',
+                    folder: 'dentalcare',
                     width: 250,
                     height: 250,
                     gravity: 'faces',
                     crop: 'fill'
                 });
 
-                if (result) {
-                    user = await User.create({
-                        fullName,
-                        email,
-                        password,
-                        avatar: {
-                            public_id: result.public_id,
-                            secure_url: result.secure_url
-                        },
-                        role:role
-                    });
+                avatarData = {
+                    public_id: result.public_id,
+                    secure_url: result.secure_url
+                };
 
-                    // Remove file from server
-                    await fs.rm(`uploads/${req.file.filename}`);
-                }
+                // Remove file from server
+                await fs.unlink(req.file.path);
             } catch (error) {
-                return next(new AppError(error || 'File not Uploaded'));
+                return next(new AppError(error.message || 'File upload failed', 500));
             }
         }
 
-        if (!user) {
-            user = await User.create({
-                fullName,
-                email,
-                password,
-                avatar: {
-                    public_id: email,
-                    secure_url: null
-                },
-                role:role
+        // Create user with avatar data
+        user = await User.create({
+            fullName,
+            email,
+            password,
+            avatar: avatarData,
+            role: role || 'USER'
+        });
 
+        // If user is a doctor, create doctor record
+        if (role === 'DOCTOR') {
+            if (!phone || !speciality || !experience || !qualifications) {
+                return next(new AppError('All doctor fields are required', 400));
+            }
+
+            await Doctor.create({
+                name: fullName,
+                email,
+                phone,
+                speciality,
+                experience: parseInt(experience),
+                qualifications: qualifications.split(',').map(q => q.trim()),
+                bio: bio || '',
+                avatar: avatarData.secure_url,
+                workingHours: workingHours ? JSON.parse(workingHours) : {
+                    monday: { start: "09:00", end: "17:00", isWorking: true },
+                    tuesday: { start: "09:00", end: "17:00", isWorking: true },
+                    wednesday: { start: "09:00", end: "17:00", isWorking: true },
+                    thursday: { start: "09:00", end: "17:00", isWorking: true },
+                    friday: { start: "09:00", end: "17:00", isWorking: true },
+                    saturday: { start: "09:00", end: "17:00", isWorking: false },
+                    sunday: { start: "09:00", end: "17:00", isWorking: false }
+                },
+                slotDuration: parseInt(slotDuration) || 30,
+                userId: user._id
             });
         }
 
         user.password = undefined;
 
         const token = await user.generateJWTToken();
-
         res.cookie('token', token, cookieOptions);
 
-        // Move this block to the end
         res.status(201).json({
             success: true,
             message: 'User Registered Successfully',
             user,
         });
-    } catch (e) {
-        console.error(e); 
+    } catch (error) {
+        console.error(error);
         return next(new AppError('Error creating user', 500));
     }
 };

@@ -1,6 +1,8 @@
 import Appointment from "../models/appointment.models.js";
 import User from "../models/user.models.js"; // Assuming you have a User model
+import Patient from "../models/patient.models.js";
 import { Types } from "mongoose";
+import { createAppointmentNotification } from "./notification.controller.js";
 
 // Get all appointments (with filtering options)
 export const getAllAppointments = async (req, res) => {
@@ -125,6 +127,7 @@ export const createAppointment = async (req, res) => {
   try {
     const { 
       patientId, 
+      patientInfo,
       doctorId, 
       date, 
       startTime, 
@@ -133,6 +136,22 @@ export const createAppointment = async (req, res) => {
       notes, 
       location 
     } = req.body;
+    console.log(req.body);
+    // Check if patient exists, if not create one
+    let patient = await Patient.findOne({ userId: patientId });
+    if (!patient && patientInfo) {
+      patient = await Patient.create({
+        userId: patientId,
+        fullName: patientInfo.fullName,
+        email: patientInfo.email,
+        phone: patientInfo.phone,
+        age: patientInfo.age,
+        gender: patientInfo.gender,
+        address: patientInfo.address,
+        medicalHistory: [],
+        treatmentPlans: []
+      });
+    }
     
     // Check for time conflicts (overlapping appointments for doctor)
     const conflictAppointment = await Appointment.findOne({
@@ -169,12 +188,30 @@ export const createAppointment = async (req, res) => {
       location,
       status: "upcoming"
     });
+
+    try {
+      // Create notification for both patient and doctor
+      await Promise.all([
+        createAppointmentNotification(patientId, appointment, 'booked'),
+        createAppointmentNotification(doctorId, appointment, 'booked')
+      ]);
+      console.log('Notifications created successfully for appointment:', appointment._id);
+    } catch (notificationError) {
+      console.error('Failed to create notifications:', notificationError);
+      // Continue with the response even if notification creation fails
+    }
+    
+    // Populate the appointment data
+    const populatedAppointment = await Appointment.findById(appointment._id)
+      .populate('patientId', 'name email')
+      .populate('doctorId', 'name email speciality');
     
     res.status(201).json({
       success: true,
-      data: appointment
+      data: populatedAppointment
     });
   } catch (error) {
+    console.error('Failed to create appointment:', error);
     res.status(500).json({
       success: false,
       message: "Failed to create appointment",
@@ -244,6 +281,15 @@ export const updateAppointment = async (req, res) => {
       });
     }
     
+    // Create notification if status is updated to confirmed
+    if (updateData.status === 'confirmed') {
+      await createAppointmentNotification(
+        updatedAppointment.patientId._id || updatedAppointment.patientId,
+        updatedAppointment,
+        'confirmed'
+      );
+    }
+    
     res.status(200).json({
       success: true,
       data: updatedAppointment
@@ -260,8 +306,13 @@ export const updateAppointment = async (req, res) => {
 // Cancel an appointment
 export const cancelAppointment = async (req, res) => {
   try {
-    const appointmentId = req.params.id;
-    const appointment = await Appointment.findById(appointmentId);
+    const { id } = req.params;
+    
+    const appointment = await Appointment.findByIdAndUpdate(
+      id,
+      { status: "canceled" },
+      { new: true }
+    );
     
     if (!appointment) {
       return res.status(404).json({
@@ -270,36 +321,24 @@ export const cancelAppointment = async (req, res) => {
       });
     }
     
-    // Check if user is authorized (if needed)
-    if (req.user && req.user._id && 
-        appointment.patientId && 
-        req.user._id.toString() !== appointment.patientId.toString()) {
-      return res.status(403).json({
-        success: false,
-        message: "You can only cancel your own appointments"
-      });
-    }
-    
-    // Update the appointment
-    const updatedAppointment = await Appointment.findByIdAndUpdate(
-      appointmentId,
-      { status: "canceled" },
-      { new: true }
+    // Create cancellation notification
+    await createAppointmentNotification(
+      appointment.patientId,
+      appointment,
+      'canceled'
     );
     
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
-      message: "Appointment canceled successfully",
-      data: updatedAppointment
+      data: appointment,
+      message: "Appointment cancelled successfully"
     });
   } catch (error) {
-    console.error("Error canceling appointment:", error);
-    return res.status(500).json({
+    res.status(500).json({
       success: false,
       message: "Failed to cancel appointment",
       error: error.message
     });
-  
   }
 };
 

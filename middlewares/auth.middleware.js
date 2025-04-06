@@ -62,7 +62,7 @@ export const isDoctor = async (req, res, next) => {
         // Get current user with role information
         const user = await User.findById(req.user.id);
         
-        if (!user || user.role !== 'doctor') {
+        if (!user || user.role !== 'DOCTOR') {
             return next(new AppError('Access denied. Doctor privileges required.', 403));
         }
         

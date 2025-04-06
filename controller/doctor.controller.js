@@ -1,7 +1,9 @@
 import Doctor from '../models/doctor.model.js';
 import Appointment from '../models/appointment.models.js';
+import TreatmentPlan from '../models/treatment.model.js';
 import catchAsync from '../utils/catchAsync.js';
 import AppError from '../utils/error.utils.js';
+import mongoose from 'mongoose';
 
 // Get all doctors
 export const getAllDoctors = catchAsync(async (req, res, next) => {
@@ -229,5 +231,292 @@ export const getDoctorsBySpeciality = catchAsync(async (req, res, next) => {
     success: true,
     count: doctors.length,
     data: doctors
+  });
+});
+
+// Get doctor's today appointments
+export const getDoctorTodayAppointments = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  console.log(id);
+  const doctor = await Doctor.find({userId: id});
+  // const userId = Doctor.find({userId: id}).name;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  console.log(doctor._id);
+  const appointments = await Appointment.find({
+    doctorId: id,
+    date: {
+      $gte: today,
+      $lt: tomorrow
+    }
+  }).populate('patientId', 'fullName email phone');
+
+  res.status(200).json({
+    success: true,
+    count: appointments.length,
+    data: appointments
+  });
+});
+
+// Get doctor's upcoming appointments
+export const getDoctorUpcomingAppointments = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const appointments = await Appointment.find({
+    doctorId: id,
+    date: { $gt: today }
+  })
+    .populate('patientId', 'fullName email phone')
+    .sort({ date: 1, startTime: 1 });
+
+  res.status(200).json({
+    success: true,
+    count: appointments.length,
+    data: appointments
+  });
+});
+
+// Get doctor's patients
+export const getDoctorPatients = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const patients = await Appointment.distinct('patientId', { doctorId: id });
+  const patientDetails = await Patient.find({
+    _id: { $in: patients }
+  }).select('-password');
+
+  res.status(200).json({
+    success: true,
+    count: patientDetails.length,
+    data: patientDetails
+  });
+});
+
+// Get doctor's treatment plans
+export const getDoctorTreatmentPlans = catchAsync(async (req, res) => {
+  const { id } = req.params;
+
+  const treatmentPlans = await TreatmentPlan.find({ doctorId: id })
+    .populate('patientId', 'fullName email')
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({
+    success: true,
+    count: treatmentPlans.length,
+    data: treatmentPlans
+  });
+});
+
+// Get doctor's analytics
+export const getDoctorAnalytics = catchAsync(async (req, res) => {
+  const { id } = req.params;
+  const timeRange = req.query.timeRange || '30'; // Default to 30 days
+
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - parseInt(timeRange));
+
+  // Get appointments statistics
+  const appointments = await Appointment.find({
+    doctorId: id,
+    date: { $gte: startDate }
+  });
+
+  const totalAppointments = appointments.length;
+  const completedAppointments = appointments.filter(a => a.status === 'completed').length;
+  const cancelledAppointments = appointments.filter(a => a.status === 'cancelled').length;
+
+  // Get treatment statistics
+  const treatments = await TreatmentPlan.find({
+    doctorId: id,
+    createdAt: { $gte: startDate }
+  });
+
+  const totalTreatments = treatments.length;
+  const completedTreatments = treatments.filter(t => t.status === 'completed').length;
+  const ongoingTreatments = treatments.filter(t => t.status === 'in-progress').length;
+
+  // Calculate revenue
+  const revenue = treatments.reduce((total, treatment) => total + treatment.cost, 0);
+
+  // Get patient statistics
+  const uniquePatients = await Appointment.distinct('patientId', {
+    doctorId: id,
+    date: { $gte: startDate }
+  });
+
+  // Get procedure distribution
+  const procedureStats = treatments.reduce((acc, curr) => {
+    acc[curr.procedure] = (acc[curr.procedure] || 0) + 1;
+    return acc;
+  }, {});
+
+  res.status(200).json({
+    success: true,
+    data: {
+      appointments: {
+        total: totalAppointments,
+        completed: completedAppointments,
+        cancelled: cancelledAppointments,
+        completionRate: totalAppointments ? (completedAppointments / totalAppointments) * 100 : 0
+      },
+      treatments: {
+        total: totalTreatments,
+        completed: completedTreatments,
+        ongoing: ongoingTreatments,
+        successRate: totalTreatments ? (completedTreatments / totalTreatments) * 100 : 0,
+        procedureDistribution: procedureStats
+      },
+      patients: {
+        total: uniquePatients.length,
+        averagePerDay: uniquePatients.length / parseInt(timeRange)
+      },
+      revenue: {
+        total: revenue,
+        average: totalTreatments ? revenue / totalTreatments : 0
+      }
+    }
+  });
+});
+
+// Update getDoctorDashboard to include treatment plans
+export const getDoctorDashboard = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // First find the doctor
+    const doctors = await Doctor.find({ userId: id });
+    if (!doctors || doctors.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Doctor not found"
+      });
+    }
+
+    const doctor = doctors[0];
+    const doctorId = doctor._id;
+
+    // Get total patients
+    const totalPatients = await Appointment.distinct('patientId', { doctorId }).then(patients => patients.length);
+
+    // Get total appointments
+    const totalAppointments = await Appointment.countDocuments({ doctorId });
+
+    // Get today's appointments
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const todayAppointments = await Appointment.find({
+      doctorId,
+      date: { $gte: today, $lt: tomorrow }
+    }).populate('patientId', 'fullName');
+
+    // Get treatment plans statistics
+    const treatmentPlans = await TreatmentPlan.find({ doctorId });
+    const totalRevenue = treatmentPlans.reduce((total, plan) => total + plan.cost, 0);
+    const activePatients = await TreatmentPlan.distinct('patientId', {
+      doctorId,
+      status: { $in: ['planned', 'in-progress'] }
+    });
+
+    // Get appointment statistics for the last 7 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const appointmentStats = await Appointment.aggregate([
+      {
+        $match: {
+          doctorId: new mongoose.Types.ObjectId(doctorId),
+          date: { $gte: sevenDaysAgo }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: "%Y-%m-%d", date: "$date" } },
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          _id: 0,
+          date: "$_id",
+          count: 1
+        }
+      },
+      { $sort: { date: 1 } }
+    ]);
+
+    // Get recent activity
+    const recentActivity = await Promise.all([
+      // Recent appointments
+      Appointment.find({ doctorId })
+        .sort({ date: -1, startTime: -1 })
+        .limit(5)
+        .populate('patientId', 'fullName'),
+      // Recent treatment plans
+      TreatmentPlan.find({ doctorId })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate('patientId', 'fullName')
+    ]);
+
+    const formattedActivity = [
+      ...recentActivity[0].map(appointment => ({
+        type: 'appointment',
+        description: `Appointment with ${appointment.patientId.fullName}`,
+        time: appointment.date,
+        status: appointment.status
+      })),
+      ...recentActivity[1].map(plan => ({
+        type: 'treatment',
+        description: `${plan.procedure} for ${plan.patientId.fullName}`,
+        time: plan.createdAt,
+        status: plan.status
+      }))
+    ].sort((a, b) => b.time - a.time).slice(0, 5);
+
+    res.json({
+      success: true,
+      data: {
+        totalPatients,
+        activePatients: activePatients.length,
+        totalAppointments,
+        todayAppointments: todayAppointments.length,
+        todayAppointmentsList: todayAppointments,
+        totalRevenue,
+        appointmentStats,
+        treatmentStats: {
+          total: treatmentPlans.length,
+          active: treatmentPlans.filter(p => p.status === 'in-progress').length,
+          completed: treatmentPlans.filter(p => p.status === 'completed').length
+        },
+        recentActivity: formattedActivity
+      }
+    });
+  } catch (error) {
+    console.error('Error in getDoctorDashboard:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch dashboard data",
+      error: error.message
+    });
+  }
+};
+
+// Get doctor by userId
+export const getDoctorByUserId = catchAsync(async (req, res, next) => {
+  const doctor = await Doctor.findOne({ userId: req.params.userId });
+
+  if (!doctor) {
+    return next(new AppError('No doctor found with that user ID', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: doctor
   });
 });

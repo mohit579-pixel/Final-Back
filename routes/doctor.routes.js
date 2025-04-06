@@ -1,5 +1,22 @@
 import express from 'express';
-import {getAllDoctors, getDoctor, getDoctorsBySpeciality, getAvailableSlots, createDoctor, updateDoctor, deleteDoctor, updateWorkingHours, getDoctorAppointments} from '../controller/doctor.controller.js'; 
+import {
+  getAllDoctors,
+  getDoctor,
+  getDoctorsBySpeciality,
+  getAvailableSlots,
+  createDoctor,
+  updateDoctor,
+  deleteDoctor,
+  updateWorkingHours,
+  getDoctorAppointments,
+  getDoctorDashboard,
+  getDoctorTodayAppointments,
+  getDoctorUpcomingAppointments,
+  getDoctorPatients,
+  getDoctorTreatmentPlans,
+  getDoctorAnalytics,
+  getDoctorByUserId
+} from '../controller/doctor.controller.js';
 import * as authMiddleware from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -18,19 +35,24 @@ router.get('/:id/available-slots', asyncHandler(getAvailableSlots));
 // Protected routes (require authentication)
 router.use(authMiddleware.isLoggedIn);
 
-// Only admins can create doctors
-router.post('/', createDoctor);
+// Doctor dashboard and related routes
+router.get('/:id/dashboard', authMiddleware.isDoctor, asyncHandler(getDoctorDashboard));
+router.get('/:id/appointments/today', authMiddleware.isDoctor, asyncHandler(getDoctorTodayAppointments));
+router.get('/:id/appointments/upcoming', authMiddleware.isDoctor, asyncHandler(getDoctorUpcomingAppointments));
+router.get('/:id/appointments', authMiddleware.isDoctor, asyncHandler(getDoctorAppointments));
+router.get('/:id/patients', authMiddleware.isDoctor, asyncHandler(getDoctorPatients));
+router.get('/:id/treatment-plans', authMiddleware.isDoctor, asyncHandler(getDoctorTreatmentPlans));
+router.get('/:id/analytics', authMiddleware.isDoctor, asyncHandler(getDoctorAnalytics));
 
-// Doctor or admin can update doctor profile
-router.patch('/:id', updateDoctor);
+// Get doctor by userId
+router.get('/user/:userId', authMiddleware.isDoctor, asyncHandler(getDoctorByUserId));
 
-// Only admin can delete a doctor
+// Doctor profile management
+router.patch('/:id', authMiddleware.isDoctor, asyncHandler(updateDoctor));
+router.patch('/:id/working-hours', authMiddleware.isDoctor, asyncHandler(updateWorkingHours));
+
+// Admin only routes
+router.post('/', authMiddleware.isAdmin, asyncHandler(createDoctor));
 router.delete('/:id', authMiddleware.isAdmin, asyncHandler(deleteDoctor));
-
-// Doctor can update their working hours
-// router.patch('/:id/working-hours', authMiddleware.isAuthorized(['admin', 'doctor']), asyncHandler(updateWorkingHours));
-
-// Get doctor appointments (accessible by the doctor themselves or admin)
-router.get('/:id/appointments', asyncHandler(getDoctorAppointments));
 
 export default router;
