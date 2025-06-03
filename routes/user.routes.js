@@ -1,5 +1,5 @@
 import express from 'express';
-import { registerUser, loginUser, logoutUser, getLoggedInUserDetails } from '../controller/user.controller.js';
+import { registerUser, loginUser, logoutUser, getLoggedInUserDetails, getAllUsers } from '../controller/user.controller.js';
 import { isLoggedIn } from '../middlewares/auth.middleware.js';
 import multer from 'multer';
 import path from 'path';
@@ -30,13 +30,13 @@ const upload = multer({
       return cb(null, true);
     }
     cb(new Error('Only image files are allowed!'));
-  }
+  } 
 });
 
 // Routes
+router.get('/', getAllUsers);
 router.post('/register', upload.single('avatar'), registerUser);
 router.post('/login', loginUser);
 router.get('/logout', logoutUser);
 router.get('/me', isLoggedIn, getLoggedInUserDetails);
-
 export default router;

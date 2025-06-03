@@ -10,7 +10,11 @@ import doctorRoutes from './routes/doctor.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import treatmentRoutes from './routes/treatment.routes.js';
 import analyticsRoutes from './routes/analytics.routes.js';
-
+import dentalRecordRoutes from './routes/dentalRecord.routes.js';
+import treatmentPlanRoutes from './routes/treatmentPlan.routes.js';
+import prescriptionRoutes from './routes/prescription.routes.js';
+import paymentRoutes from './routes/payment.routes.js';
+import dentalAnalysisRoutes from './routes/dentalAnalysis.routes.js';
 dotenv.config();
 const app = express();
 
@@ -24,7 +28,8 @@ const allowedOrigins = [
   'https://final-pro-pink.vercel.app',
   'http://localhost:5173',
   'http://localhost:5174',
-  'http://localhost:3000'
+  'http://localhost:3000',
+ 'http://final-pro-pink.vercel.app'
 ];
 
 // CORS middleware
@@ -58,9 +63,12 @@ app.use('/api/v1/patients', patientRoutes);
 app.use('/api/v1/appointments', appointmentRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/notifications', notificationRoutes);
-app.use('/api/v1/treatment-plans', treatmentRoutes);
+app.use('/api/v1/treatment-plans', treatmentPlanRoutes);
 app.use('/api/v1/analytics', analyticsRoutes);
-
+app.use('/api/v1/dental-records', dentalRecordRoutes);
+app.use('/api/v1/prescriptions', prescriptionRoutes);
+app.use('/api/v1/payment', paymentRoutes);
+app.use('/api/v1/dental-analysis', dentalAnalysisRoutes);
 // Server Status Check Route
 app.get('/ping', (_req, res) => {
   res.send('Pong');
