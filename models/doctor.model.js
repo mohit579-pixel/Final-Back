@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import Appointment from './appointment.models.js';
 
 const doctorSchema = new mongoose.Schema({
   name: {
@@ -108,7 +109,6 @@ doctorSchema.methods.getAvailableSlots = async function(date) {
   }
   
   // Get booked appointments for this doctor on this date
-  const Appointment = mongoose.model('Appointment');
   const dateStart = new Date(date);
   dateStart.setHours(0, 0, 0, 0);
   

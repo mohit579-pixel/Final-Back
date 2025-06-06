@@ -14,12 +14,32 @@ const appointmentSchema = new Schema(
     },
     status: { 
       type: String, 
-      enum: ["upcoming", "completed", "canceled", "rescheduled"], 
+      enum: ["upcoming", "completed", "canceled", "rescheduled", "confirmed"], 
       default: "upcoming" 
     },
     notes: { type: String },
     location: { type: String },
     paymentStatus: { type: String, enum: ["Paid", "Unpaid"], default: "Unpaid" },
+    paymentAmount: {
+      type: Number,
+      default: 0
+    },
+    diagnoses: [{
+      toothNumber: { type: String, required: true },
+      condition: { type: String, required: true },
+      severity: { 
+        type: String, 
+        enum: ["low", "medium", "high"],
+        default: "low"
+      },
+      treatment: { type: String },
+      notes: { type: String },
+      images: [{ type: String }],
+      createdAt: { type: Date, default: Date.now }
+    }],
+    prescription: { type: String },
+    followUpDate: { type: Date },
+    medications: [{ type: String }]
   },
   { timestamps: true }
 );

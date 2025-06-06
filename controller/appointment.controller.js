@@ -3,6 +3,9 @@ import User from "../models/user.models.js"; // Assuming you have a User model
 import Patient from "../models/patient.models.js";
 import { Types } from "mongoose";
 import { createAppointmentNotification } from "./notification.controller.js";
+import cloudinary from 'cloudinary';
+import { Readable } from 'stream';
+import Doctor from "../models/doctor.model.js";
 
 // Get all appointments (with filtering options)
 export const getAllAppointments = async (req, res) => {
@@ -451,4 +454,257 @@ export const deleteAppointment = async (req, res) => {
       error: error.message
     });
   }
+};
+
+// Update appointment status
+export const updateAppointmentStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    // Validate status
+    const validStatuses = ['confirmed', 'canceled', 'completed', 'rescheduled', 'pending'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid status value"
+      });
+    }
+
+    const appointment = await Appointment.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    ).populate('patientId', 'name email')
+     .populate('doctorId', 'name email speciality');
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Appointment not found"
+      });
+    }
+
+    // Create notification for status update
+    try {
+      await createAppointmentNotification(
+        appointment.patientId._id || appointment.patientId,
+        appointment,
+        status
+      );
+    } catch (notificationError) {
+      console.error('Failed to create notification:', notificationError);
+      // Continue with the response even if notification creation fails
+    }
+
+    res.status(200).json({
+      success: true,
+      data: appointment,
+      message: `Appointment status updated to ${status} successfully`
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to update appointment status",
+      error: error.message
+    });
+  }
+};
+
+export const getTodayAppointments = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const appointments = await Appointment.find({
+      doctorId,
+      date: {
+        $gte: today,
+        $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
+      }
+    }).populate('patientId');
+
+    res.status(200).json({
+      success: true,
+      data: appointments
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching today\'s appointments',
+      error: error.message
+    });
+  }
+};
+
+export const addDiagnosis = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { diagnoses, prescription, followUpDate, medications,paymentAmount } = req.body;
+
+    console.log(req.body);
+    // Validate required fields
+    if (!diagnoses || !Array.isArray(diagnoses) || diagnoses.length === 0) {
+      return res.status(400).json({ message: 'At least one diagnosis is required' });
+    }
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    // Validate each diagnosis
+    for (const diagnosis of diagnoses) {
+      if (!diagnosis.toothNumber || !diagnosis.condition) {
+        return res.status(400).json({ 
+          message: 'Each diagnosis must have a tooth number and condition' 
+        });
+      }
+    }
+
+    // Update appointment with new diagnosis data
+    appointment.diagnoses = diagnoses.map(diagnosis => ({
+      toothNumber: diagnosis.toothNumber,
+      condition: diagnosis.condition,
+      severity: diagnosis.severity || 'low',
+      treatment: diagnosis.treatment || '',
+      notes: diagnosis.notes || '',
+      createdAt: new Date()
+    }));
+
+    if (prescription) appointment.prescription = prescription;
+    if (followUpDate) appointment.followUpDate = new Date(followUpDate);
+    if (medications) appointment.medications = medications;
+    if(paymentAmount) appointment.paymentAmount=paymentAmount;
+    appointment.status = 'completed';
+
+    await appointment.save();
+
+    res.status(200).json({
+      message: 'Diagnosis added successfully',
+      appointment
+    });
+  } catch (error) {
+    console.error('Error adding diagnosis:', error);
+    res.status(500).json({ message: 'Error adding diagnosis', error: error.message });
+  }
+};
+
+export const uploadImages = async (req, res) => {
+  try {
+    const { appointmentId, toothNumber } = req.body;
+    const files = req.files;
+
+    if (!files || files.length === 0) {
+      return res.status(400).json({ message: 'No files uploaded' });
+    }
+
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) {
+      return res.status(404).json({ message: 'Appointment not found' });
+    }
+
+    // Upload files to Cloudinary using streams
+    const uploadPromises = files.map(file => {
+      return new Promise((resolve, reject) => {
+        const stream = Readable.from(file.buffer);
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'dental-images',
+            resource_type: 'auto'
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.pipe(uploadStream);
+      });
+    });
+
+    const uploadedImages = await Promise.all(uploadPromises);
+
+    // Update appointment with image URLs
+    const diagnosis = appointment.diagnoses.find(d => d.toothNumber === toothNumber);
+    if (diagnosis) {
+      diagnosis.images = diagnosis.images || [];
+      diagnosis.images.push(...uploadedImages.map(img => ({
+        url: img.secure_url,
+        publicId: img.public_id,
+        uploadedAt: new Date()
+      })));
+    }
+
+    await appointment.save();
+
+    res.status(200).json({
+      message: 'Images uploaded successfully',
+      images: uploadedImages
+    });
+  } catch (error) {
+    console.error('Error uploading images:', error);
+    res.status(500).json({ message: 'Error uploading images', error: error.message });
+  }
+};
+
+// Get completed appointments for a specific doctor
+export const getDoctorCompletedAppointments = async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    
+    if (!doctorId) {
+      return res.status(400).json({
+        success: false,
+        message: "Doctor ID is required"
+      });
+    }
+
+    // Find the doctor by userId
+    const doctor = await Doctor.findOne({ userId: doctorId });
+    
+    if (!doctor) {
+      return res.status(404).json({
+        success: false,
+        message: "Doctor not found"
+      });
+    }
+
+    const appointments = await Appointment.find({ 
+      doctorId: doctor._id,
+      status: 'completed'
+    })
+      .populate('patientId', 'fullName email phone dateOfBirth gender')
+      .sort({ date: -1, startTime: -1 }); // Sort by most recent first
+    
+    res.status(200).json({
+      success: true,
+      count: appointments.length,
+      data: appointments
+    });
+  } catch (error) {
+    console.error('Error in getDoctorCompletedAppointments:', error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve completed appointments",
+      error: error.message
+    });
+  }
+};
+
+export default {
+  getAllAppointments,
+  getAppointmentById,
+  getPatientAppointments,
+  getDoctorAppointments,
+  createAppointment,
+  updateAppointment,
+  updateAppointmentStatus,
+  cancelAppointment,
+  getDoctorAvailableSlots,
+  deleteAppointment,
+  getTodayAppointments,
+  addDiagnosis,
+  uploadImages,
+  getDoctorCompletedAppointments
 };

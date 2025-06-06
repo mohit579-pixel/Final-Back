@@ -77,7 +77,7 @@ export const deleteDoctor = catchAsync(async (req, res, next) => {
 // Get doctor's appointments
 export const getDoctorAppointments = catchAsync(async (req, res, next) => {
   const appointments = await Appointment.find({ doctorId: req.params.id })
-    .populate('patientId', 'name email')
+    .populate('patientId', 'name email fullName')
     .sort({ date: 1, startTime: 1 });
 
   res.status(200).json({
@@ -244,9 +244,9 @@ export const getDoctorTodayAppointments = catchAsync(async (req, res) => {
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
-  console.log(doctor._id);
+  console.log("doctor id",doctor[0]._id);
   const appointments = await Appointment.find({
-    doctorId: id,
+    doctorId: doctor[0]._id,
     date: {
       $gte: today,
       $lt: tomorrow
